@@ -1,2 +1,10 @@
 # amazonshelper
-TamperMonkey script (browser extension) for Amazon to add price by volume for materials and to hide useless UI elements 
+
+TamperMonkey script (browser extension) for Amazon to add pricing based on volume for materials and other improvements to the site.
+
+Features
+- Price out sheets of materials by volume, eg a 2x3x4in sheet of acrylic for $48 will show $2/in^3
+- Price out rods of materials by volume, eg a 10in long, 2in diam rod for $40 will show $1.27/in^3
+- Show pricing by quantity of items, e.g. a 4-pack selling for $10 will show $2.50/count
+- Hide striked out pricing
+- Hide out of stock items

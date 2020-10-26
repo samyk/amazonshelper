@@ -5,14 +5,11 @@
 // @description  Show prices on Amazon by volume, including quantity, for relative pricing
 // @include      *://*.amazon.com/*s?*
 // @require      https://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js
+// @Xrequire     file:///Users/samy/Code/amazon/amazonshelper/amazon.js
 // @namespace    https://samy.pl
 // ==/UserScript==
 
 /*
- www.amazon.com##span span span:has-text(Out of Stock):upward(div.sg-col-inner):upward(1)
-(?:(\d+)\s*pack)?
-(?: ( \d+(?:[\/\.]\d+)? ) \s* ("|inch|mm)? )
-
 TODO
 - add sort by price
 - add input to remove items by description, eg -polycarbonate (amazon doesn't support this in search)
@@ -78,6 +75,13 @@ let sizes = {
   'thou': 'mil'
 }
 
+let defaultDesc = [
+  {
+    're': re_qty,
+    'names': ['qty'],
+  }
+]
+
 // calculations to do for different volumes
 let calcs = [
   { // support sheets
@@ -126,8 +130,8 @@ $(document).ready(onPageLoad)
 // hide elements we don't like
 function hideElems()
 {
+  //$('.a-color-secondary').hide() // hide per-item pricing
   $('.a-text-price').hide() // hide striked out prices
-  $('.a-color-secondary').hide() // hide per-item pricing
   $('span span span:contains("Out of Stock")').closest('div.sg-col-inner').parent().hide() // hide out of stock items
 }
 
@@ -149,8 +153,6 @@ function onPageLoad()
 // scan through items and calculate price by volume
 function scanItems(obj)
 {
-  if (!obj) return
-
   // go through each amazon item
   $('.s-result-item').each(function(ind)
   {
@@ -160,10 +162,16 @@ function scanItems(obj)
     values.price = $(this).find('span.a-offscreen').first().text().replace('$', '')
     values.desc = cleanup($(this).find('span.a-text-normal').first().text())
 
-    console.log('item', values.desc, values.price)
-
     // go through regexpes to pull data out of description
-    values = parseText(values, values.desc, obj.descRe)
+    values = parseText(values, values.desc, obj ? obj.descRe : defaultDesc)
+    values.qty = values.qty || 1
+    values.unitprice = round(values.price / values.qty)
+
+    // if we don't have a secondary price and we do have qty pricing
+    if (!$(this).find('.a-price').next().length)
+      $(this).find('.a-price').after(`<span class="a-size-base a-color-secondary" dir="auto">($${values.unitprice}/ea)</span>`)
+
+    if (!obj) return
 
     // find length types
     for (let key of Object.keys(values))
@@ -182,7 +190,7 @@ function scanItems(obj)
       }
 
       // consider 1/2 as inches
-      else if (values[key].substr('/') >= 0 || values[key].indexOf('"') > -1)
+      else if (values[key].length && (values[key].substr('/') >= 0 || values[key].indexOf('"') > -1))
         values[`${key}_type`] = sizes['inch']
     }
 
@@ -199,21 +207,24 @@ function scanItems(obj)
     if (!values['type'])
       values['type'] = values['width_type']
 
-    // no quantity means qty 1
-    values['qty'] = values['qty'] || 1
-
     let calc = runCalc(values, obj)
     if (!isNaN(calc) && Number.isFinite(calc))
     {
       values.calc = calc
-      calc = calc.toFixed(3)
-      $(this).find('.a-price-fraction').append(` or <font color=red>\$${calc}/${values.type}${obj.type}</font>`)
+      calc = round(calc)
+      $(this).find('.a-price-fraction').append(` <font color=red>\$${calc}/${values.type}${obj.type}</font>`)
     }
 
     console.log(values)
   })
 
 } // end of items()
+
+// round 1.2345 to 1.235
+function round(num, points)
+{
+  return num.toFixed(points || 3)
+}
 
 // convert smart quotes/unicode to normal quotes
 function cleanup(str)
