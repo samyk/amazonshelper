@@ -11,7 +11,6 @@
 
 /*
 TODO
-- add sort by price
 - add input to remove items by description, eg -polycarbonate (amazon doesn't support this in search)
 - add the lengths/qtys/etc in adjustable inputs
 - allow removing items by clicking n 'x'
@@ -55,6 +54,7 @@ let re_diamlen_arr = [ // ORs
 
 let re_whd     = re_whd_arr.join('|')
 let re_diamlen = re_diamlen_arr.join('|')
+let amazonItem = '.s-main-slot>.s-result-item'
 
 let rg_size    = new RegExp(`(${re_size})`, 'i')
 let rg_rmsize  = new RegExp(`\\s*-?${re_size}`, 'i')
@@ -86,7 +86,7 @@ let defaultDesc = [
 let calcs = [
   { // support sheets
     'searchRe': /sheet|panel/, // search box must match this text (regexp)
-    'calc': 'price/(thick*width*height*qty)', // text gets replaced with values[text]
+    'calc': 'price/(thick*width*height*qty)', // text gets replaced with item.data(text)
     'type': '^3',
     'descRe': [ // the calc variables are produced from these regexpes
       {
@@ -101,7 +101,7 @@ let calcs = [
   },
   { // support rods
     'searchRe': /rod|bar/,
-    'calc': 'price/(3.14*((diam/2)**2)*length*qty)', // text gets replaced with values[text]
+    'calc': 'price/(3.14*((diam/2)**2)*length*qty)', // text gets replaced with item.data(text)
     'type': '^3',
     'descRe': [
       {
@@ -153,72 +153,95 @@ function onPageLoad()
 // scan through items and calculate price by volume
 function scanItems(obj)
 {
+  let items = $(amazonItem)
   // go through each amazon item
-  $('.s-result-item').each(function(ind)
+  items.each(function(ind)
   {
-    let values = {}
+    let item = $(this)
 
     // set price and desc
-    values.price = $(this).find('span.a-offscreen').first().text().replace('$', '')
-    values.desc = cleanup($(this).find('span.a-text-normal').first().text())
+    item.data('price', getPrice(this))
+    item.data('desc', cleanup(item.find('span.a-text-normal').first().text()))
 
     // go through regexpes to pull data out of description
-    values = parseText(values, values.desc, obj ? obj.descRe : defaultDesc)
-    values.qty = values.qty || 1
-    values.unitprice = round(values.price / values.qty)
+    parseText(item, item.data('desc'), obj ? obj.descRe : defaultDesc)
+    item.data('qty', item.data('qty') || 1)
+    item.data('unitPrice', round(item.data('price') / item.data('qty')))
 
     // if we don't have a secondary price and we do have qty pricing
-    if (!$(this).find('.a-price').next().length)
-      $(this).find('.a-price').after(`<span class="a-size-base a-color-secondary" dir="auto">($${values.unitprice}/ea)</span>`)
+    if (!item.find('.a-price').next().length)
+      item.find('.a-price').after(`<span class="a-size-base a-color-secondary" dir="auto">($${item.data('unitPrice')}/ea)</span>`)
 
-    if (!obj) return
-
-    // find length types
-    for (let key of Object.keys(values))
-    {
-      let match = rg_size.exec(values[key])
-      if (match)
-      {
-          // remove type from string (3 in -> 3)
-          values[key] = values[key].replace(rg_rmsize, '')
-          console.log("length type", key,`\\s*${re_size}`, values[key], match, sizes[match[1]])
-
-          let type = match[1].toLowerCase()
-          if (!values[`type`])
-            values[`type`] = sizes[type] || type
-          values[`${key}_type`] = sizes[type] || type || values['type']
-      }
-
-      // consider 1/2 as inches
-      else if (values[key].length && (values[key].substr('/') >= 0 || values[key].indexOf('"') > -1))
-        values[`${key}_type`] = sizes['inch']
-    }
-
-    // XXX
-    // fill in other types
-    if (!values['width_type'])
-      values['width_type'] = values['height_type'] || values['thick_type']
-    if (!values['height_type'])
-      values['height_type'] = values['width_type'] || values['thick_type']
-    if (!values['thick_type'])
-      values['thick_type'] = values['width_type'] || values['height_type']
-
-    // general type
-    if (!values['type'])
-      values['type'] = values['width_type']
-
-    let calc = runCalc(values, obj)
-    if (!isNaN(calc) && Number.isFinite(calc))
-    {
-      values.calc = calc
-      calc = round(calc)
-      $(this).find('.a-price-fraction').append(` <font color=red>\$${calc}/${values.type}${obj.type}</font>`)
-    }
-
-    console.log(values)
+    // calculate volume of the items
+    if (obj)
+      volumeCalc(obj, item)
   })
 
+  // resort by price
+  items.sort(function(a, b)
+  {
+    let pa = obj ? $(a).data('volPrice') : getPrice(a)
+    let pb = obj ? $(b).data('volPrice') : getPrice(b)
+    if (!pa || pa <= 0) pa = 10000
+    if (!pb || pb <= 0) pb = 10000
+    //  let pa = getPrice(a), pb = getPrice(b)
+    return (pa > pb) ? (pa > pb) ? 1 : 0 : -1
+  }).appendTo(items.parent())
+
 } // end of items()
+
+// return amazon price from element
+function getPrice(elem)
+{
+  return $(elem).find('span.a-offscreen').first().text().replace('$', '')
+}
+
+function volumeCalc(obj, item)
+{
+  // find length types
+  for (let key of Object.keys(item.data()))
+  {
+    let match = rg_size.exec(item.data(key))
+    if (match)
+    {
+        // remove type from string (3 in -> 3)
+        item.data(key, item.data(key).replace(rg_rmsize, ''))
+        console.log("length type", key,`\\s*${re_size}`, item.data(key), match, sizes[match[1]])
+
+        let type = match[1].toLowerCase()
+        if (!item.data(`type`))
+          item.data(`type`, sizes[type] || type)
+        item.data(`${key}_type`, sizes[type] || type || item.data('type'))
+    }
+
+    // consider 1/2 as inches
+    else if (item.data(key).length && (item.data(key).substr('/') >= 0 || item.data(key).indexOf('"') > -1))
+      item.data(`${key}_type`, sizes['inch'])
+  }
+
+  // XXX
+  // fill in other types
+  if (!item.data('width_type'))
+    item.data('width_type', item.data('height_type') || item.data('thick_type'))
+  if (!item.data('height_type'))
+    item.data('height_type', item.data('width_type') || item.data('thick_type'))
+  if (!item.data('thick_type'))
+    item.data('thick_type', item.data('width_type') || item.data('height_type'))
+
+  // general type
+  if (!item.data('type'))
+    item.data('type', item.data('width_type'))
+
+  let calc = runCalc(item, obj)
+  if (!isNaN(calc) && Number.isFinite(calc))
+  {
+    item.data('volPrice', calc)
+    calc = round(calc)
+    item.find('.a-price-fraction').append(` <font color=red>\$${calc}/${item.data('type')}${obj.type}</font>`)
+  }
+
+  console.log(item.data())
+}
 
 // round 1.2345 to 1.235
 function round(num, points)
@@ -246,37 +269,37 @@ function convert(val, from, to)
 }
 
 // calculate data from object
-function runCalc(values, obj)
+function runCalc(item, obj)
 {
-  console.log('runcalc', values)
+  console.log('runcalc', item.data())
 
   // ensure values are same type
-  for (const [k, v] of Object.entries(values))
+  for (const [k, v] of Object.entries(item.data()))
   {
     console.log('kv', k, v)
-    if (values[`${k}_type`] && values[`${k}_type`] !== values['type'])
+    if (item.data(`${k}_type`) && item.data(`${k}_type`) !== item.data('type'))
     {
-      values[k] = convert(v, values[`${k}_type`], values['type'])
-      values[`${k}_type`] = values['type']
+      item.data(k, convert(v, item.data(`${k}_type`), item.data('type')))
+      item.data(`${k}_type`, item.data('type'))
     }
   }
-  let calcstr = obj.calc.replace(/([a-z]+)/g, key => values[key] || 0)
+  let calcstr = obj.calc.replace(/([a-z]+)/g, key => item.data(key) || 0)
   let out
   try {
     out = eval(calcstr)
   } catch(err) {
     console.log('error on eval', err)
   }
-  console.log('new str', obj.calc, calcstr, values, out)
+  console.log('new str', obj.calc, calcstr, item.data(), out)
   return out
 } // runCalc
 
 // parses text (like description) to match regexpes, stores data in object
-function parseText(values, text, regs)
+function parseText(elem, text, regs)
 {
   // make sure we have something to parse
   if (!text.length)
-    return values
+    return
 
   // loop through regexp objs
   for (const obj of regs)
@@ -288,11 +311,10 @@ function parseText(values, text, regs)
     if (match)
       for (let i = 1; i < match.length; i++)
         // if we don't already have a value, and our i is an int, and we have data to store
-        if (!values[obj.names[(i-1) % obj.names.length]] &&
+        if (!elem.data(obj.names[(i-1) % obj.names.length]) &&
         Number.isInteger(i) && typeof match[i] !== 'undefined' && match[i].length)
-          values[obj.names[(i-1) % obj.names.length]] = match[i].trim()
+          elem.data(obj.names[(i-1) % obj.names.length], match[i].trim())
   }
-  return values
 } // parseText
 
 
