@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Amazon Price by Volume
-// @version      0.0.2
+// @version      0.0.3
 // @author       samy kamkar
 // @description  Show prices on Amazon by volume, including quantity, for relative pricing
 // @include      *://*.amazon.com/*s?*
@@ -193,7 +193,15 @@ function scanItems(obj)
 // return amazon price from element
 function getPrice(elem)
 {
-  return $(elem).find('span.a-offscreen').first().text().replace('$', '')
+  // get the price of each item
+  let price = $(elem).find('span.a-size-base.a-color-secondary').first().text().replace(/[^\d.]/g, '')
+
+  console.log('price', price)
+  // if no such price, get total price of item
+  if (!price)
+    price = $(elem).find('span.a-offscreen').first().text().replace('$', '')
+
+  return parseFloat(price)
 }
 
 function volumeCalc(obj, item)
@@ -312,7 +320,9 @@ function parseText(elem, text, regs)
       for (let i = 1; i < match.length; i++)
         // if we don't already have a value, and our i is an int, and we have data to store
         if (!elem.data(obj.names[(i-1) % obj.names.length]) &&
-        Number.isInteger(i) && typeof match[i] !== 'undefined' && match[i].length)
+            Number.isInteger(i) &&
+            typeof match[i] !== 'undefined' && match[i].lengt
+        )
           elem.data(obj.names[(i-1) % obj.names.length], match[i].trim())
   }
 } // parseText
